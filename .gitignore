@@ -1,0 +1,6 @@
+*.hd5
+*.h5
+__pycache__/
+*.pyc
+.DS_Store
+.venv/

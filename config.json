@@ -1,0 +1,8 @@
+{
+  "data_root": "data",
+  "raw_dir": "data/raw",
+  "processed_dir": "data/processed",
+  "default_h5": "data/raw/3254689660.hd5",
+  "default_lead": "II",
+  "window_s": 30
+}
