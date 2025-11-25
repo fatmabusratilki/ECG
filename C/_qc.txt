@@ -1,0 +1,3 @@
+Median RR=0.454 s -> HR≈132.2 bpm
+ST60_max_abs: median=143.2, 95th=7243, max=3.455e+04
+ST80_max_abs: median=168.3, 95th=7245, max=2.448e+04

@@ -226,7 +226,7 @@ def discover_ecg_dataset(h5: h5py.File, dataset_override: Optional[str] = None, 
             return ds, ch, fs, all_items, dataset_override
         raise KeyError(f"Dataset '{dataset_override}' not found in file.")
 
-    # Rank candidates
+    # Rank candidates (Adayları puanla)
     candidates = []
     for path, dtype, shape, kind in all_items:
         if kind != "dataset":
@@ -237,12 +237,13 @@ def discover_ecg_dataset(h5: h5py.File, dataset_override: Optional[str] = None, 
         except Exception:
             continue
 
-    # Fallback: if nothing matched, relax filters but still avoid obvious vitals
+    # Fallback: Hiçbir şey bulunamazsa filtreleri gevşet
     if not candidates:
         for path, dtype, shape, kind in all_items:
             if kind != "dataset":
                 continue
             p = path.lower()
+            # Yine de bariz metadata dosyalarını ele
             if any(ex in p for ex in ["/vitals/", "/time", "/event", "samples_per_ts", "sample_freq"]):
                 continue
             candidates.append((path, dtype, shape))
@@ -250,7 +251,7 @@ def discover_ecg_dataset(h5: h5py.File, dataset_override: Optional[str] = None, 
     if not candidates:
         return None, None, None, all_items, None
 
-    # Score + sort
+    # Score + sort (Puanla ve sırala)
     def score_item(path, dtype, shape):
         s = 0
         p = path.lower()
@@ -266,7 +267,7 @@ def discover_ecg_dataset(h5: h5py.File, dataset_override: Optional[str] = None, 
 
     candidates.sort(key=lambda it: score_item(*it), reverse=True)
 
-    # Try candidates in order until one opens
+    # Adayları sırayla dene
     for path, _, _ in candidates:
         try:
             ds = h5[path]
@@ -698,6 +699,52 @@ def plot_st_medians(summary_df: pd.DataFrame, out_dir: str, base: str, pdf: Opti
         ax.tick_params(axis='x', rotation=45)
         plot_and_save(fig, os.path.join(out_dir, f"{base}_{c}.png"), pdf)
 
+def t_axis_frontal(all_leads_by_name: Dict[str, np.ndarray], wins: List[BeatWindows], fs: float) -> np.ndarray:
+    # 1. Gerekli kanalları bul (Büyük/küçük harf duyarsız)
+    lead_I = None
+    lead_II = None
+    lead_aVF = None
+
+    for name, data in all_leads_by_name.items():
+        n = name.upper()
+        if n == "I" or n == "LEADI":
+            lead_I = data
+        elif n == "II" or n == "LEADII":
+            lead_II = data
+        elif n == "AVF" or n == "LEADAVF":
+            lead_aVF = data
+
+    # 2. Lead I şart, yoksa hesaplayamayız
+    if lead_I is None:
+        return np.full(len(wins), np.nan)
+
+    # 3. aVF yoksa, II ve I'den türet: aVF = II - 0.5 * I
+    if lead_aVF is None:
+        if lead_II is not None:
+            lead_aVF = lead_II - 0.5 * lead_I
+        else:
+            # Ne aVF var ne de II, hesaplayamayız
+            return np.full(len(wins), np.nan)
+
+    # 4. Her atım için T-peak genliğini ölç ve açıyı hesapla
+    axes = []
+    for w in wins:
+        # Baseline düzeltmesi yapılmış genlikleri al
+        # (Baseline_idx'teki değeri çıkarıyoruz)
+        amp_I = lead_I[w.t_peak] - lead_I[w.baseline_idx]
+        amp_aVF = lead_aVF[w.t_peak] - lead_aVF[w.baseline_idx]
+
+        # Genlikler çok küçükse (gürültü) açı hesaplama
+        if abs(amp_I) < 1e-6 and abs(amp_aVF) < 1e-6:
+            axes.append(np.nan)
+        else:
+            # atan2(y, x) -> radyan cinsinden açı
+            # Dereceye çevir: degrees(atan2(aVF, I))
+            angle = math.degrees(math.atan2(amp_aVF, amp_I))
+            axes.append(angle)
+
+    return np.array(axes)
+
 # -----------------------------
 # Main analysis
 # -----------------------------
@@ -809,7 +856,11 @@ def analyze(input_path: str,
 
         # T-axis (if I & aVF)
         t_axis = t_axis_frontal(all_leads_by_name, wins, fs)
-        print(f"T-axis: {t_axis:.1f}°" if t_axis is not None else "T-axis not available (need I & aVF).")
+        if t_axis is not None and len(t_axis) > 0:
+            median_axis = np.nanmedian(t_axis)
+            print(f"T-axis (median): {median_axis:.1f}°")
+        else:
+            print("T-axis not available (need I & aVF).")
 
         # ST-derived channels if present (stv*/sti*)
         st_deriv = extract_st_channels(all_leads_by_name)
@@ -963,7 +1014,10 @@ def analyze(input_path: str,
             summary_df["morph_corr_median"] = float(np.nanmedian(beats_df["morph_corr_allleads"].values))
         else:
             summary_df["morph_corr_median"] = np.nan
-        summary_df["t_axis_deg_global"] = t_axis if t_axis is not None else np.nan
+        if t_axis is not None and len(t_axis) > 0:
+            summary_df["t_axis_deg_global"] = float(np.nanmedian(t_axis))
+        else:
+            summary_df["t_axis_deg_global"] = np.nan
 
         # Save CSVs
         beats_csv = f"{output_prefix}_beats.csv"
