@@ -46,8 +46,8 @@ except Exception:
 # -----------------------------
 # Defaults (your UNC path here)
 # -----------------------------
-DEFAULT_INPUT = r"\\MGBMAD3ISILON1-smb.partners.org\MGH-BTSDATA-ARCHIVE\2019\06\3254689660.hd5"
-DEFAULT_OUTPUT_PREFIX = r".\3254689660_morph"
+DEFAULT_INPUT = "/Users/barko/Desktop/BLUESENSE/OPIOID_OVERDOSE/C/raw/3254689660.hd5"
+DEFAULT_OUTPUT_PREFIX = "/Users/barko/Desktop/BLUESENSE/OPIOID_OVERDOSE/C/"
 DEFAULT_MAX_DURATION_SEC = 600.0
 DEFAULT_MAX_BEATS = 600
 DEFAULT_FS_IF_MISSING = None  # set e.g. 500.0 if your file lacks fs
@@ -183,8 +183,14 @@ def looks_like_waveform_candidate(path: str, dtype: str, shape: tuple) -> bool:
       - avoid typical vitals/time/event/samples datasets
     """
     p = path.lower()
-    if any(ex in p for ex in ["/vitals/", "/time", "/event", "samples_per_ts", "/value"]):
+    # Explicitly exclude metadata/time/event
+    if any(ex in p for ex in ["/vitals/", "/time", "/event", "samples_per_ts", "sample_freq"]):
         return False
+    
+    # If it's a 'value' dataset, it MUST be in a waveforms group to be valid
+    if "/value" in p and "waveforms" not in p:
+        return False
+
     if "bedmaster" in p and any(k in p for k in ["wave", "full_disclosure", "ecg"]):
         pass  # favorable
     # Dtype
@@ -237,7 +243,7 @@ def discover_ecg_dataset(h5: h5py.File, dataset_override: Optional[str] = None, 
             if kind != "dataset":
                 continue
             p = path.lower()
-            if any(ex in p for ex in ["/vitals/", "/time", "/event", "samples_per_ts", "/value"]):
+            if any(ex in p for ex in ["/vitals/", "/time", "/event", "samples_per_ts", "sample_freq"]):
                 continue
             candidates.append((path, dtype, shape))
 
